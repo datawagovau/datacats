@@ -472,8 +472,7 @@ def create_source(srcdir, preload_image, datapusher=False):
 
 
 # Maps container extra names to actual names
-EXTRA_IMAGE_MAPPING = {'redis': 'redis',
-			'pycsw':'datacats/pycsw'}
+EXTRA_IMAGE_MAPPING = {'redis': 'redis', 'pycsw': 'datacats/pycsw'}
 
 
 def start_supporting_containers(sitedir, srcdir, passwords,

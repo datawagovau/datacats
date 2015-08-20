@@ -974,7 +974,7 @@ class Environment(object):
             - 'lessc'
             - 'datapusher'
             - 'redis'
-	    - 'pycsw'
+            - 'pycsw'
         The name will be formatted appropriately with any prefixes and postfixes
         needed.
 
