@@ -17,6 +17,7 @@ from urlparse import urlparse
 from functools import cmp_to_key
 from warnings import warn
 
+
 # XXX our fixes on top of fixes to work with docker-py and docker
 # incompatibilities are approaching the level of superstition.
 # let's hope docker calms down a bit so we can clean this out
@@ -31,6 +32,17 @@ from requests import ConnectionError
 from datacats.error import (DatacatsError,
         WebCommandError, PortAllocatedError)
 
+DOCKER_FAIL_STRING = '''Failed to connect to Docker. This could be because \
+your machine does not have a high enough Docker version (we require 1.16), \
+or because your docker-machine is not initialized (or it is unreachable \
+because its environment settings aren't set).
+
+The simplest way to install Docker (on Linux) is to do \
+wget http://get.docker.io | sh.
+
+The simplest way to create and start a docker-machine VM is to run \
+"docker-machine create dev && docker-machine start dev",\
+then to add the line "eval '$(docker-machine env dev)'" to your .bashrc file.'''
 MINIMUM_API_VERSION = '1.16'
 
 
@@ -51,9 +63,15 @@ except TLSParameterError:
     exit(1)
 
 
-def _boot2docker_check_connectivity():
-    # HACK: We determine from commands if we're boot2docker
-    # Needed cause this method is called from is_boot2docker...
+def _machine_check_connectivity():
+    """
+    This method calls to docker-machine on the command line and
+    makes sure that it is up and ready.
+
+    Potential improvements to be made:
+        - Support multiple machine names (run a `docker-machine ls` and then
+        see which machines are active. Use a priority list)
+    """
     with open(devnull, 'w') as devnull_f:
         try:
             status = subprocess.check_output(
@@ -69,35 +87,6 @@ def _boot2docker_check_connectivity():
             if 'tls' in _docker_kwargs:
                 # It will print out messages to the user otherwise.
                 _docker_kwargs['tls'].assert_hostname = False
-        except OSError:
-            # Docker machine isn't installed.
-            try:
-                status = subprocess.check_output(
-                    ['boot2docker', 'status'],
-                    stderr=devnull_f).strip()
-                if status == 'poweroff':
-                    raise DatacatsError('Your boot2docker machine is '
-                                        'powered off. Please run "boot2docker up"'
-                                        'to power it on. Alternatively you '
-                                        'can migrate to the newer docker-machine.')
-                print ('Please note that boot2docker support in datacats is '
-                       'deprecated in favour of docker-machine')
-                # XXX HACK: This exists because of
-                #           http://github.com/datacats/datacats/issues/63,
-                # as a temporary fix.
-                if 'tls' in _docker_kwargs:
-                    # It will print out messages to the user otherwise.
-                    _docker_kwargs['tls'].verify = False
-            except OSError:
-                # We're probably on Linux or a new Mac.
-                pass
-            except subprocess.CalledProcessError:
-                raise DatacatsError('Boot2docker VM is not created. '
-                                    'You can create a VM through '
-                                    'the command "boot2docker init". '
-                                    'Boot2docker has been deprecated '
-                                    'and we at DataCats suggest you '
-                                    'migrate to docker-machine.')
         except subprocess.CalledProcessError:
             raise DatacatsError('Please create a docker-machine with '
                                 '"docker-machine start dev"')
@@ -108,17 +97,22 @@ def _get_docker():
 
     if not _docker:
         if sys.platform.startswith('darwin'):
-            _boot2docker_check_connectivity()
+            _machine_check_connectivity()
 
         # Create the Docker client
         version_client = Client(version=MINIMUM_API_VERSION, **_docker_kwargs)
         try:
             api_version = version_client.version()['ApiVersion']
         except ConnectionError:
-            # workaround for connection issue when old version specified
-            # on some clients
-            version_client = Client(**_docker_kwargs)
-            api_version = version_client.version()['ApiVersion']
+            try:
+                # workaround for connection issue when old version specified
+                # on some clients
+                version_client = Client(**_docker_kwargs)
+                api_version = version_client.version()['ApiVersion']
+            except:
+                raise DatacatsError(DOCKER_FAIL_STRING)
+        except:
+            raise DatacatsError(DOCKER_FAIL_STRING)
 
         version = get_api_version(DEFAULT_DOCKER_API_VERSION, api_version)
         _docker = Client(version=version, **_docker_kwargs)
@@ -343,10 +337,6 @@ def remove_container(name, force=False):
         return True
     except APIError:
         return False
-
-
-def container_running(name):
-    return inspect_container(name)
 
 
 def inspect_container(name):
